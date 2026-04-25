@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Pulse LaunchAgent template.
+
+  Copy to ~/Library/LaunchAgents/local.pulse.plist and adjust ProgramArguments
+  if your Pulse.app lives somewhere other than /Applications.
+
+  Then bootstrap it:
+      launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/local.pulse.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>local.pulse</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/Pulse.app/Contents/MacOS/Pulse</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

@@ -1,0 +1,12 @@
+# Build artifacts
+*.app/
+dump_thermal
+
+# Xcode / Swift
+*.dSYM/
+.build/
+.swiftpm/
+*.xcuserdata/
+
+# macOS
+.DS_Store
