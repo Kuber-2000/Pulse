@@ -73,6 +73,26 @@ func padLeft(_ s: String, to width: Int) -> String {
     return String(repeating: " ", count: width - s.count) + s
 }
 
+// MARK: - Threshold-based status emoji
+
+func cpuLoadEmoji(_ percent: Double) -> String {
+    if percent >= 80 { return "🔥" }
+    if percent >= 50 { return "⚡" }
+    return "⚙️"
+}
+
+func cpuTempEmoji(_ celsius: Double) -> String {
+    if celsius >= 80 { return "🔥" }
+    if celsius >= 60 { return "🥵" }
+    return "🌡️"
+}
+
+func fanEmoji(_ percent: Double) -> String {
+    if percent >= 75 { return "💨" }
+    if percent >= 40 { return "🌪️" }
+    return "🌀"
+}
+
 // MARK: - App delegate
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -214,17 +234,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         netItem.button?.title = String(format: "↓ %.1f  ↑ %.1f", peakRx, peakTx)
 
         // ── System status item ──
-        let cpuStr = String(format: "⚙️ %.0f%%", lastCPUPercent)
+        let cpuStr = String(format: "%@ %.0f%%", cpuLoadEmoji(lastCPUPercent), lastCPUPercent)
         let tempStr: String
         if let t = lastTempC {
-            tempStr = String(format: "🌡️ %.0f°C", t)
+            tempStr = String(format: "%@ %.0f°C", cpuTempEmoji(t), t)
         } else {
             tempStr = "🌡️ —"
         }
         let fanStr: String
         let fanTooltip: String
         if let primary = lastFans.first {
-            fanStr = String(format: "🌀 %.0f%%", primary.percent)
+            fanStr = String(format: "%@ %.0f%%", fanEmoji(primary.percent), primary.percent)
             fanTooltip = lastFans.enumerated().map { i, f in
                 let label = lastFans.count == 1 ? "Fan" : "Fan \(i + 1)"
                 return String(format: "%@: %.0f rpm  (%.0f%% of %.0f max)", label, f.rpm, f.percent, f.maxRPM)
