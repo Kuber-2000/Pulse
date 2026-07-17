@@ -93,6 +93,12 @@ func fanEmoji(_ percent: Double) -> String {
     return "🌀"
 }
 
+func networkEmoji(_ totalMBps: Double) -> String {
+    if totalMBps >= 5 { return "🚀" }
+    if totalMBps >= 0.5 { return "📶" }
+    return "💤"
+}
+
 // MARK: - App delegate
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -124,7 +130,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         netItem = bar.statusItem(withLength: NSStatusItem.variableLength)
         netItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        netItem.button?.title = "↓ 0.0  ↑ 0.0"
+        netItem.button?.title = "💤 ↓ 0.0  ↑ 0.0"
         netItem.button?.toolTip = "Transfer speed (MB/s).\nTracks Wi-Fi, AirDrop, Ethernet, USB tether.\nUSB Finder/Photos transfers go via usbmuxd and aren't shown."
         netMenu = NSMenu()
         netMenu.autoenablesItems = false
@@ -231,7 +237,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let peak = rows.first
         let peakRx = peak?.rx ?? 0
         let peakTx = peak?.tx ?? 0
-        netItem.button?.title = String(format: "↓ %.1f  ↑ %.1f", peakRx, peakTx)
+        let netTotal = peakRx + peakTx
+        netItem.button?.title = String(format: "%@ ↓ %.1f  ↑ %.1f", networkEmoji(netTotal), peakRx, peakTx)
 
         // ── System status item ──
         let cpuStr = String(format: "%@ %.0f%%", cpuLoadEmoji(lastCPUPercent), lastCPUPercent)
