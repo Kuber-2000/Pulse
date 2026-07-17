@@ -112,7 +112,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         sysItem = bar.statusItem(withLength: NSStatusItem.variableLength)
         sysItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        sysItem.button?.title = "CPU --  Fan --"
+        sysItem.button?.title = "⚙️ --  🌡️ --  🌀 --"
         sysMenu = NSMenu()
         sysMenu.autoenablesItems = false
         sysItem.menu = sysMenu
@@ -214,24 +214,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         netItem.button?.title = String(format: "↓ %.1f  ↑ %.1f", peakRx, peakTx)
 
         // ── System status item ──
-        let cpuStr = String(format: "CPU %.0f%%", lastCPUPercent)
+        let cpuStr = String(format: "⚙️ %.0f%%", lastCPUPercent)
+        let tempStr: String
+        if let t = lastTempC {
+            tempStr = String(format: "🌡️ %.0f°C", t)
+        } else {
+            tempStr = "🌡️ —"
+        }
         let fanStr: String
         let fanTooltip: String
         if let primary = lastFans.first {
-            fanStr = String(format: "Fan %.0f%%", primary.percent)
+            fanStr = String(format: "🌀 %.0f%%", primary.percent)
             fanTooltip = lastFans.enumerated().map { i, f in
                 let label = lastFans.count == 1 ? "Fan" : "Fan \(i + 1)"
                 return String(format: "%@: %.0f rpm  (%.0f%% of %.0f max)", label, f.rpm, f.percent, f.maxRPM)
             }.joined(separator: "\n")
         } else {
-            fanStr = "Fan —"
+            fanStr = "🌀 —"
             fanTooltip = "No fans detected (fanless Mac or SMC unavailable)."
         }
-        sysItem.button?.title = "\(cpuStr)  \(fanStr)"
+        sysItem.button?.title = "\(cpuStr)  \(tempStr)  \(fanStr)"
 
-        var sysTooltip = String(format: "CPU load: %.0f%%", lastCPUPercent)
+        var sysTooltip = String(format: "⚙️ CPU load: %.0f%%", lastCPUPercent)
         if let t = lastTempC {
-            sysTooltip += String(format: "\nCPU temp: %.0f °C", t)
+            sysTooltip += String(format: "\n🌡️ CPU temp: %.0f °C", t)
         }
         sysTooltip += "\n" + fanTooltip
         sysItem.button?.toolTip = sysTooltip
@@ -334,7 +340,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func rebuildSysMenu() {
         sysMenu.removeAllItems()
-        addSectionHeader(to: sysMenu, title: "CPU")
+        addSectionHeader(to: sysMenu, title: "⚙️ CPU")
         addRow(to: sysMenu, label: "Load", value: String(format: "%.0f %%", lastCPUPercent))
         if let t = lastTempC {
             addRow(to: sysMenu, label: "Temperature", value: String(format: "%.0f °C", t))
@@ -343,7 +349,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         sysMenu.addItem(.separator())
-        addSectionHeader(to: sysMenu, title: "Fans")
+        addSectionHeader(to: sysMenu, title: "🌀 Fans")
         if lastFans.isEmpty {
             addPlaceholder(to: sysMenu, text: "Fanless / not exposed")
         } else {
