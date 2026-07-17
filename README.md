@@ -3,28 +3,31 @@
 A tiny **macOS menu-bar** tool that shows live network transfer speed, CPU load, CPU temperature, and fan speed — at a glance, without leaving your menu bar.
 
 ```
-↓ 12.3  ↑ 0.4        CPU 42%  Fan 35%
-└── Network ──┘      └─── System ────┘
+💤↓12.3 ↑0.4        ⚙️42% 🌡️55° 🌀35%
+└── Network ──┘      └──── System ────┘
 ```
 
-Two compact menu bar items:
+Two compact menu bar items, each with icons that shift as things heat up:
 
-- **Network** — peak interface's download / upload speed in MB/s
-- **System** — CPU load percentage and primary fan speed (% of max RPM)
+- **Network** — peak interface's download / upload speed in MB/s. Icon escalates 💤 idle → 📶 active → 🚀 heavy transfer.
+- **System** — CPU load %, CPU temperature, and primary fan speed (% of max RPM). Each icon escalates independently as its value crosses warning/hot thresholds (e.g. ⚙️ → ⚡ → 🔥 for load).
 
-Click either for a detailed dropdown. Hover the System item for live RPM / temp readout.
+Title changes cross-fade in rather than snapping, so tier shifts feel smooth instead of flickery. Click either item for a detailed dropdown. Hover the System item for live RPM / temp readout.
 
 ---
 
 ## Features
 
-- **Real network throughput** — sampled from `getifaddrs` byte counters every second, across **Wi‑Fi, AirDrop (AWDL), Ethernet, and USB tether** interfaces
+- **Real network throughput** — sampled from `getifaddrs` byte counters, across **Wi‑Fi, AirDrop (AWDL), Ethernet, and USB tether** interfaces
 - **Per-interface breakdown** in the network dropdown, sorted by activity
 - **Smart labels** — uses `networksetup -listallhardwareports` so your iPhone shows up as "iPhone USB", not `en7`
 - **CPU load** — total active % across all logical cores (`host_statistics`)
-- **CPU temperature** — hot-spot of the CPU die sensors (works on Apple Silicon **and** Intel)
+- **CPU temperature** — hot-spot of the CPU die sensors (works on Apple Silicon **and** Intel), shown live in the menu bar
 - **Fan speed** — RPM and % saturation between `F0Mn` and `F0Mx` SMC keys
+- **Dynamic status emoji** — CPU load, temperature, fan, and network icons each escalate through their own warning/hot tiers instead of staying static
+- **Smooth cross-fade transitions** — status bar text fades between updates instead of snapping
 - **Auto-launch at login** via a LaunchAgent (no Login Items dance)
+- **Tuned for low background battery/CPU use** — sampling throttled per-sensor (see cadence table below), no more work than needed to stay live
 - **No telemetry, no ads, no signing fees, no install bloat** — single self-contained `.app`, ~150 KB binary
 - ~**500 lines of Swift**, zero dependencies
 
@@ -123,6 +126,7 @@ Pulse/
 ├── main.swift          # AppKit menu-bar app, two NSStatusItems
 ├── Sensors.swift       # CPU ticks, IOHID thermal, SMC fan
 ├── Info.plist          # Bundle identity, LSUIElement = true
+├── AppIcon.icns        # App icon (Finder / Applications / About)
 ├── build.sh            # swiftc + bundle
 ├── launchagent.plist   # Login-launch template
 ├── dump_thermal.swift  # Standalone tool: list every IOHID temp sensor
