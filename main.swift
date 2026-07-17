@@ -1,4 +1,5 @@
 import Cocoa
+import QuartzCore
 import Darwin
 
 // MARK: - Sampling network interface byte counters
@@ -99,6 +100,18 @@ func networkEmoji(_ totalMBps: Double) -> String {
     return "💤"
 }
 
+/// Cross-fades a status bar button's title into place instead of snapping,
+/// so emoji/tier changes read as a smooth transition rather than a flicker.
+func setTitleAnimated(_ button: NSStatusBarButton?, _ newTitle: String) {
+    guard let button = button, button.title != newTitle else { return }
+    let transition = CATransition()
+    transition.type = .fade
+    transition.duration = 0.35
+    transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+    button.layer?.add(transition, forKey: "titleFade")
+    button.title = newTitle
+}
+
 // MARK: - App delegate
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -129,6 +142,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let bar = NSStatusBar.system
 
         netItem = bar.statusItem(withLength: NSStatusItem.variableLength)
+        netItem.button?.wantsLayer = true
         netItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         netItem.button?.title = "💤↓0.0 ↑0.0"
         netItem.button?.toolTip = "Transfer speed (MB/s).\nTracks Wi-Fi, AirDrop, Ethernet, USB tether.\nUSB Finder/Photos transfers go via usbmuxd and aren't shown."
@@ -137,6 +151,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         netItem.menu = netMenu
 
         sysItem = bar.statusItem(withLength: NSStatusItem.variableLength)
+        sysItem.button?.wantsLayer = true
         sysItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         sysItem.button?.title = "⚙️-- 🌡️-- 🌀--"
         sysMenu = NSMenu()
@@ -238,7 +253,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let peakRx = peak?.rx ?? 0
         let peakTx = peak?.tx ?? 0
         let netTotal = peakRx + peakTx
-        netItem.button?.title = String(format: "%@↓%.1f ↑%.1f", networkEmoji(netTotal), peakRx, peakTx)
+        setTitleAnimated(netItem.button, String(format: "%@↓%.1f ↑%.1f", networkEmoji(netTotal), peakRx, peakTx))
 
         // ── System status item ──
         let cpuStr = String(format: "%@%.0f%%", cpuLoadEmoji(lastCPUPercent), lastCPUPercent)
@@ -260,7 +275,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             fanStr = "🌀—"
             fanTooltip = "No fans detected (fanless Mac or SMC unavailable)."
         }
-        sysItem.button?.title = "\(cpuStr) \(tempStr) \(fanStr)"
+        setTitleAnimated(sysItem.button, "\(cpuStr) \(tempStr) \(fanStr)")
 
         var sysTooltip = String(format: "⚙️ CPU load: %.0f%%", lastCPUPercent)
         if let t = lastTempC {

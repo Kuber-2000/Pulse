@@ -15,6 +15,7 @@ cp AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 swiftc -O main.swift Sensors.swift \
   -framework Cocoa \
   -framework IOKit \
+  -framework QuartzCore \
   -o "$APP_DIR/Contents/MacOS/$APP_NAME"
 
 # Force LaunchServices to re-read the bundle (so LSUIElement is honored).
