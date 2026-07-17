@@ -10,6 +10,7 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
 cp Info.plist "$APP_DIR/Contents/Info.plist"
+cp AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 swiftc -O main.swift Sensors.swift \
   -framework Cocoa \

@@ -130,7 +130,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         netItem = bar.statusItem(withLength: NSStatusItem.variableLength)
         netItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        netItem.button?.title = "💤 ↓ 0.0  ↑ 0.0"
+        netItem.button?.title = "💤↓0.0 ↑0.0"
         netItem.button?.toolTip = "Transfer speed (MB/s).\nTracks Wi-Fi, AirDrop, Ethernet, USB tether.\nUSB Finder/Photos transfers go via usbmuxd and aren't shown."
         netMenu = NSMenu()
         netMenu.autoenablesItems = false
@@ -138,7 +138,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         sysItem = bar.statusItem(withLength: NSStatusItem.variableLength)
         sysItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        sysItem.button?.title = "⚙️ --  🌡️ --  🌀 --"
+        sysItem.button?.title = "⚙️-- 🌡️-- 🌀--"
         sysMenu = NSMenu()
         sysMenu.autoenablesItems = false
         sysItem.menu = sysMenu
@@ -149,7 +149,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         lastLabelRefresh = Date()
         prevCPU = readCPUTicks()
 
-        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.tick()
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -193,7 +193,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func tick() {
         let now = Date()
 
-        if now.timeIntervalSince(lastLabelRefresh) > 5.0 {
+        if now.timeIntervalSince(lastLabelRefresh) > 30.0 {
             hwLabels = loadHardwarePortLabels()
             lastLabelRefresh = now
         }
@@ -221,14 +221,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             prevCPU = curr
         }
 
-        // CPU temp throttled to ~1 Hz (IOHID iteration is the slow part)
-        if now.timeIntervalSince(lastTempRead) >= 1.0 {
+        // CPU temp throttled (IOHID iteration is the slow part)
+        if now.timeIntervalSince(lastTempRead) >= 3.0 {
             lastTempC = thermal?.readCPUTemperature()
             lastTempRead = now
         }
 
-        // Fan info throttled to ~0.5 Hz
-        if now.timeIntervalSince(lastFanRead) >= 2.0 {
+        // Fan info throttled (SMC reads are slow)
+        if now.timeIntervalSince(lastFanRead) >= 4.0 {
             lastFans = smc?.readAllFans() ?? []
             lastFanRead = now
         }
@@ -238,29 +238,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let peakRx = peak?.rx ?? 0
         let peakTx = peak?.tx ?? 0
         let netTotal = peakRx + peakTx
-        netItem.button?.title = String(format: "%@ ↓ %.1f  ↑ %.1f", networkEmoji(netTotal), peakRx, peakTx)
+        netItem.button?.title = String(format: "%@↓%.1f ↑%.1f", networkEmoji(netTotal), peakRx, peakTx)
 
         // ── System status item ──
-        let cpuStr = String(format: "%@ %.0f%%", cpuLoadEmoji(lastCPUPercent), lastCPUPercent)
+        let cpuStr = String(format: "%@%.0f%%", cpuLoadEmoji(lastCPUPercent), lastCPUPercent)
         let tempStr: String
         if let t = lastTempC {
-            tempStr = String(format: "%@ %.0f°C", cpuTempEmoji(t), t)
+            tempStr = String(format: "%@%.0f°", cpuTempEmoji(t), t)
         } else {
-            tempStr = "🌡️ —"
+            tempStr = "🌡️—"
         }
         let fanStr: String
         let fanTooltip: String
         if let primary = lastFans.first {
-            fanStr = String(format: "%@ %.0f%%", fanEmoji(primary.percent), primary.percent)
+            fanStr = String(format: "%@%.0f%%", fanEmoji(primary.percent), primary.percent)
             fanTooltip = lastFans.enumerated().map { i, f in
                 let label = lastFans.count == 1 ? "Fan" : "Fan \(i + 1)"
                 return String(format: "%@: %.0f rpm  (%.0f%% of %.0f max)", label, f.rpm, f.percent, f.maxRPM)
             }.joined(separator: "\n")
         } else {
-            fanStr = "🌀 —"
+            fanStr = "🌀—"
             fanTooltip = "No fans detected (fanless Mac or SMC unavailable)."
         }
-        sysItem.button?.title = "\(cpuStr)  \(tempStr)  \(fanStr)"
+        sysItem.button?.title = "\(cpuStr) \(tempStr) \(fanStr)"
 
         var sysTooltip = String(format: "⚙️ CPU load: %.0f%%", lastCPUPercent)
         if let t = lastTempC {

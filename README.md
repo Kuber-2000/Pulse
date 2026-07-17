@@ -99,10 +99,11 @@ rm -rf /Applications/Pulse.app
 | CPU temperature | `IOHIDEventSystemClient` thermal sensors (private, dlsym) — same as Stats / iStat Menus |
 | Fan RPM + min/max | SMC via `IOConnectCallStructMethod` — `FNum`, `F<i>Ac`, `F<i>Mn`, `F<i>Mx` |
 
-Sampling cadence:
-- Network bytes & CPU ticks: every 1 s
-- CPU temperature: every 1 s
-- Fan RPM: every 2 s (SMC reads are slow)
+Sampling cadence (tuned for low background CPU/battery use):
+- Network bytes & CPU ticks: every 2 s
+- CPU temperature: every 3 s
+- Fan RPM: every 4 s (SMC reads are slow)
+- Hardware port labels (`networksetup` subprocess): every 30 s
 
 ---
 
