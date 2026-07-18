@@ -95,9 +95,11 @@ func fanEmoji(_ percent: Double) -> String {
     return "🌀"
 }
 
+// Tiers align with fmtSpeed's units: 🐢 covers exactly the KB/s display range.
 func networkEmoji(_ totalMBps: Double) -> String {
-    if totalMBps >= 5 { return "🚀" }
-    if totalMBps >= 0.5 { return "📶" }
+    if totalMBps >= 5      { return "🚀" }
+    if totalMBps >= 0.9995 { return "📶" }
+    if totalMBps >= 0.01   { return "🐢" }
     return "💤"
 }
 
@@ -378,10 +380,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard isInteresting(iface) else { continue }
             guard let prev = lastBytes[iface] else { continue }
             // 32-bit wrap-aware delta, then convert to MB/s (decimal megabytes).
-            let dRx = Double(bytes.rx &- prev.rx) / dt / 1_000_000.0
-            let dTx = Double(bytes.tx &- prev.tx) / dt / 1_000_000.0
-            sessionRx &+= UInt64(bytes.rx &- prev.rx)
-            sessionTx &+= UInt64(bytes.tx &- prev.tx)
+            let dRxBytes = UInt64(bytes.rx &- prev.rx)
+            let dTxBytes = UInt64(bytes.tx &- prev.tx)
+            // A counter reset (Wi-Fi toggle, VPN reconnect) underflows the wrap-aware
+            // delta into a multi-GB/s phantom spike — drop that sample instead.
+            let maxPlausible = UInt64(2_000_000_000.0 * dt)
+            guard dRxBytes < maxPlausible, dTxBytes < maxPlausible else { continue }
+            let dRx = Double(dRxBytes) / dt / 1_000_000.0
+            let dTx = Double(dTxBytes) / dt / 1_000_000.0
+            sessionRx &+= dRxBytes
+            sessionTx &+= dTxBytes
             rows.append(Row(iface: iface, label: displayName(for: iface), rx: dRx, tx: dTx))
         }
         rows.sort { $0.total > $1.total }
