@@ -3,7 +3,7 @@
 A tiny **macOS menu-bar** tool that shows live network transfer speed, CPU load, CPU temperature, and fan speed — at a glance, without leaving your menu bar.
 
 ```
-💤↓12.3 ↑0.4        ⚙️42% 🌡️55° 🌀35%
+🚀↓12.3 ↑0.4        ⚙️42% 🌡️55° 🌀35%
 └── Network ──┘      └──── System ────┘
 ```
 
@@ -32,8 +32,8 @@ Title changes cross-fade in rather than snapping, so tier shifts feel smooth ins
 - **Auto-scaling units** — sub-MB/s traffic shows as KB/s (`↓340K`) instead of a dead-looking `0.0`
 - **Launch at Login toggle** in the dropdown menus (`SMAppService`, macOS 13+), or via the bundled LaunchAgent
 - **Tuned for low background battery/CPU use** — sampling throttled per-sensor (see cadence table below), no more work than needed to stay live
-- **No telemetry, no ads, no signing fees, no install bloat** — single self-contained `.app`, ~150 KB binary
-- ~**500 lines of Swift**, zero dependencies
+- **No telemetry, no ads, no signing fees, no install bloat** — single self-contained `.app`, ~200 KB binary
+- ~**1000 lines of Swift**, zero dependencies
 
 ---
 
@@ -101,10 +101,15 @@ rm -rf /Applications/Pulse.app
 
 | What | API used |
 |------|----------|
-| Network bytes | `getifaddrs` → `if_data.ifi_ibytes` / `ifi_obytes`, 32-bit wrap-aware delta |
+| Network bytes | `getifaddrs` → `if_data.ifi_ibytes` / `ifi_obytes`, 32-bit wrap-aware delta with counter-reset spike guard |
 | CPU load | `host_statistics(HOST_CPU_LOAD_INFO)` — user / system / idle / nice ticks |
 | CPU temperature | `IOHIDEventSystemClient` thermal sensors (private, dlsym) — same as Stats / iStat Menus |
 | Fan RPM + min/max | SMC via `IOConnectCallStructMethod` — `FNum`, `F<i>Ac`, `F<i>Mn`, `F<i>Mx` |
+| Memory | `host_statistics64(HOST_VM_INFO64)` — app + wired + compressed, Activity-Monitor-style |
+| Disk read/write | IORegistry `IOBlockStorageDriver` statistics, summed across drives |
+| Launch at Login | `SMAppService.mainApp` (macOS 13+) |
+
+Network icon tiers (down + up combined): 💤 under 10 KB/s · 🐢 up to 1 MB/s · 🐇 1–5 MB/s · 🚀 over 5 MB/s.
 
 Sampling cadence (tuned for low background CPU/battery use):
 - Network bytes & CPU ticks: adaptive — every 2 s when quiet, every 0.5 s while transfer exceeds 5 MB/s (drops back below 3 MB/s; hysteresis prevents flapping)
