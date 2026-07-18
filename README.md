@@ -9,7 +9,7 @@ A tiny **macOS menu-bar** tool that shows live network transfer speed, CPU load,
 
 Two compact menu bar items, each with icons that shift as things heat up:
 
-- **Network** — peak interface's download / upload speed in MB/s. Icon escalates 💤 idle → 📶 active → 🚀 heavy transfer.
+- **Network** — peak interface's download / upload speed in MB/s. Icon escalates 💤 idle → 🐢 slow (KB/s) → 🐇 active → 🚀 heavy transfer.
 - **System** — CPU load %, CPU temperature, and primary fan speed (% of max RPM). Each icon escalates independently as its value crosses warning/hot thresholds (e.g. ⚙️ → ⚡ → 🔥 for load).
 
 Title changes cross-fade in rather than snapping, so tier shifts feel smooth instead of flickery. Click either item for a detailed dropdown. Hover the System item for live RPM / temp readout.

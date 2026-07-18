@@ -98,7 +98,7 @@ func fanEmoji(_ percent: Double) -> String {
 // Tiers align with fmtSpeed's units: 🐢 covers exactly the KB/s display range.
 func networkEmoji(_ totalMBps: Double) -> String {
     if totalMBps >= 5      { return "🚀" }
-    if totalMBps >= 0.9995 { return "📶" }
+    if totalMBps >= 0.9995 { return "🐇" }
     if totalMBps >= 0.01   { return "🐢" }
     return "💤"
 }
