@@ -1,6 +1,7 @@
 import Cocoa
 import QuartzCore
 import Darwin
+import ServiceManagement
 
 // MARK: - Sampling network interface byte counters
 
@@ -100,6 +101,45 @@ func networkEmoji(_ totalMBps: Double) -> String {
     return "💤"
 }
 
+// MARK: - Value formatting
+
+/// Formats a MB/s value for the menu bar: KB/s below 1 MB/s so light traffic
+/// shows as "340K" instead of a dead-looking "0.0".
+func fmtSpeed(_ mbps: Double) -> String {
+    if mbps < 0.0005 { return "0" }
+    if mbps < 0.9995 { return String(format: "%.0fK", mbps * 1000) }
+    if mbps < 99.95  { return String(format: "%.1f", mbps) }
+    return String(format: "%.0f", mbps)
+}
+
+/// Same, but with an explicit unit for dropdown rows.
+func fmtSpeedUnit(_ mbps: Double) -> String {
+    if mbps < 0.9995 { return String(format: "%.0f KB/s", mbps * 1000) }
+    return String(format: "%.1f MB/s", mbps)
+}
+
+func fmtBytes(_ bytes: UInt64) -> String {
+    let b = Double(bytes)
+    if b >= 1e9 { return String(format: "%.2f GB", b / 1e9) }
+    if b >= 1e6 { return String(format: "%.1f MB", b / 1e6) }
+    return String(format: "%.0f KB", b / 1e3)
+}
+
+// MARK: - Sparkline
+
+let sparkChars: [Character] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+
+/// Renders values as a block-character sparkline, scaled to `cap`
+/// (or the series max when cap is nil).
+func sparkline(_ values: [Double], cap: Double? = nil) -> String {
+    guard !values.isEmpty else { return "" }
+    let top = max(cap ?? values.max() ?? 1, 0.000001)
+    return String(values.map { v -> Character in
+        let idx = Int(min(max(v, 0), top) / top * 7.0)
+        return sparkChars[min(idx, 7)]
+    })
+}
+
 /// Cross-fades a status bar button's title into place instead of snapping,
 /// so emoji/tier changes read as a smooth transition rather than a flicker.
 func setTitleAnimated(_ button: NSStatusBarButton?, _ newTitle: String) {
@@ -114,7 +154,7 @@ func setTitleAnimated(_ button: NSStatusBarButton?, _ newTitle: String) {
 
 // MARK: - App delegate
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // Network status item
     var netItem: NSStatusItem!
     var netMenu: NSMenu!
@@ -127,6 +167,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var hwLabels: [String: String] = [:]
     var lastLabelRefresh: Date = .distantPast
     var sampleTimer: Timer?
+    var currentInterval: TimeInterval = 0
+    // Adaptive cadence: sample fast during heavy transfer, drop back when quiet to save battery.
+    // Enter/exit thresholds differ (hysteresis) so the tier doesn't flap around one value.
+    static let fastInterval: TimeInterval = 0.5
+    static let idleInterval: TimeInterval = 2.0
+    static let fastEnterMBps: Double = 5.0
+    static let fastExitMBps: Double = 3.0
+
+    // Dropdown state — menus are only rebuilt (and disk only sampled) while open.
+    var netMenuOpen = false
+    var sysMenuOpen = false
+    var lastRows: [Row] = []
+
+    // Sparkline history (last 60 samples)
+    var netHistory: [Double] = []
+    var cpuHistory: [Double] = []
+
+    // Session data totals since launch
+    var sessionRx: UInt64 = 0
+    var sessionTx: UInt64 = 0
+
+    // Disk I/O — sampled only while the System dropdown is open
+    var lastDiskBytes: (read: UInt64, write: UInt64)?
+    var lastDiskSample: Date = .distantPast
+    var diskReadMBps: Double?
+    var diskWriteMBps: Double?
 
     // System sensors
     var prevCPU: CPUTicks?
@@ -148,6 +214,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         netItem.button?.toolTip = "Transfer speed (MB/s).\nTracks Wi-Fi, AirDrop, Ethernet, USB tether.\nUSB Finder/Photos transfers go via usbmuxd and aren't shown."
         netMenu = NSMenu()
         netMenu.autoenablesItems = false
+        netMenu.delegate = self
         netItem.menu = netMenu
 
         sysItem = bar.statusItem(withLength: NSStatusItem.variableLength)
@@ -156,6 +223,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         sysItem.button?.title = "⚙️-- 🌡️-- 🌀--"
         sysMenu = NSMenu()
         sysMenu.autoenablesItems = false
+        sysMenu.delegate = self
         sysItem.menu = sysMenu
 
         lastBytes = readBytes()
@@ -164,11 +232,99 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         lastLabelRefresh = Date()
         prevCPU = readCPUTicks()
 
-        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+        setupScreenObservers()
+        scheduleTimer(interval: Self.idleInterval)
+    }
+
+    /// Pause sampling while the screen is asleep or locked — the menu bar is
+    /// invisible then, so ticking would only burn battery.
+    func setupScreenObservers() {
+        let ws = NSWorkspace.shared.notificationCenter
+        ws.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.pauseSampling()
+        }
+        ws.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.resumeSampling()
+        }
+        let dnc = DistributedNotificationCenter.default()
+        dnc.addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+            self?.pauseSampling()
+        }
+        dnc.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
+            self?.resumeSampling()
+        }
+    }
+
+    func pauseSampling() {
+        sampleTimer?.invalidate()
+        sampleTimer = nil
+    }
+
+    func resumeSampling() {
+        guard sampleTimer == nil else { return }
+        // Re-baseline so the first tick after waking doesn't average over the whole sleep.
+        lastBytes = readBytes()
+        lastSample = Date()
+        prevCPU = readCPUTicks()
+        scheduleTimer(interval: Self.idleInterval)
+    }
+
+    func scheduleTimer(interval: TimeInterval) {
+        sampleTimer?.invalidate()
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             self?.tick()
         }
         RunLoop.main.add(timer, forMode: .common)
         sampleTimer = timer
+        currentInterval = interval
+    }
+
+    // MARK: NSMenuDelegate — rebuild dropdowns only while someone is looking
+
+    func menuWillOpen(_ menu: NSMenu) {
+        if menu === netMenu {
+            netMenuOpen = true
+            rebuildNetMenu(rows: lastRows)
+        } else if menu === sysMenu {
+            sysMenuOpen = true
+            // Disk rates need two samples; take the baseline now, the next tick fills it in.
+            lastDiskBytes = readDiskBytes()
+            lastDiskSample = Date()
+            diskReadMBps = nil
+            diskWriteMBps = nil
+            rebuildSysMenu()
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === netMenu {
+            netMenuOpen = false
+        } else if menu === sysMenu {
+            sysMenuOpen = false
+            diskReadMBps = nil
+            diskWriteMBps = nil
+        }
+    }
+
+    // MARK: Launch at login (SMAppService, macOS 13+)
+
+    var launchAtLoginEnabled: Bool {
+        guard #available(macOS 13.0, *) else { return false }
+        return SMAppService.mainApp.status == .enabled
+    }
+
+    @objc func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        guard #available(macOS 13.0, *) else { return }
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            NSLog("Pulse: launch-at-login toggle failed: \(error)")
+        }
+        sender.state = launchAtLoginEnabled ? .on : .off
     }
 
     func displayName(for iface: String) -> String {
@@ -224,6 +380,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // 32-bit wrap-aware delta, then convert to MB/s (decimal megabytes).
             let dRx = Double(bytes.rx &- prev.rx) / dt / 1_000_000.0
             let dTx = Double(bytes.tx &- prev.tx) / dt / 1_000_000.0
+            sessionRx &+= UInt64(bytes.rx &- prev.rx)
+            sessionTx &+= UInt64(bytes.tx &- prev.tx)
             rows.append(Row(iface: iface, label: displayName(for: iface), rx: dRx, tx: dTx))
         }
         rows.sort { $0.total > $1.total }
@@ -253,7 +411,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let peakRx = peak?.rx ?? 0
         let peakTx = peak?.tx ?? 0
         let netTotal = peakRx + peakTx
-        setTitleAnimated(netItem.button, String(format: "%@↓%.1f ↑%.1f", networkEmoji(netTotal), peakRx, peakTx))
+        setTitleAnimated(netItem.button, String(format: "%@↓%@ ↑%@", networkEmoji(netTotal), fmtSpeed(peakRx), fmtSpeed(peakTx)))
+
+        netHistory.append(netTotal)
+        cpuHistory.append(lastCPUPercent)
+        if netHistory.count > 60 { netHistory.removeFirst(netHistory.count - 60) }
+        if cpuHistory.count > 60 { cpuHistory.removeFirst(cpuHistory.count - 60) }
+
+        // Disk I/O — only while the System dropdown is visible
+        if sysMenuOpen, let curr = readDiskBytes() {
+            if let prev = lastDiskBytes {
+                let ddt = now.timeIntervalSince(lastDiskSample)
+                if ddt > 0 {
+                    diskReadMBps  = Double(curr.read &- prev.read) / ddt / 1_000_000.0
+                    diskWriteMBps = Double(curr.write &- prev.write) / ddt / 1_000_000.0
+                }
+            }
+            lastDiskBytes = curr
+            lastDiskSample = now
+        }
 
         // ── System status item ──
         let cpuStr = String(format: "%@%.0f%%", cpuLoadEmoji(lastCPUPercent), lastCPUPercent)
@@ -284,11 +460,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         sysTooltip += "\n" + fanTooltip
         sysItem.button?.toolTip = sysTooltip
 
-        rebuildNetMenu(rows: rows)
-        rebuildSysMenu()
+        lastRows = rows
+        if netMenuOpen { rebuildNetMenu(rows: rows) }
+        if sysMenuOpen { rebuildSysMenu() }
 
         lastBytes = current
         lastSample = now
+
+        let threshold = currentInterval == Self.fastInterval ? Self.fastExitMBps : Self.fastEnterMBps
+        let wanted = netTotal > threshold ? Self.fastInterval : Self.idleInterval
+        if wanted != currentInterval {
+            scheduleTimer(interval: wanted)
+        }
     }
 
     // Menu styling helpers
@@ -366,6 +549,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item)
     }
 
+    private func addSparklineRow(to menu: NSMenu, values: [Double], cap: Double? = nil, legend: String) {
+        let s = NSMutableAttributedString()
+        s.append(NSAttributedString(string: sparkline(values, cap: cap), attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.controlAccentColor,
+        ]))
+        s.append(NSAttributedString(string: "  " + legend, attributes: [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.tertiaryLabelColor,
+        ]))
+        let item = NSMenuItem()
+        item.attributedTitle = s
+        item.isEnabled = false
+        menu.addItem(item)
+    }
+
+    private func addFooter(to menu: NSMenu) {
+        menu.addItem(.separator())
+        if #available(macOS 13.0, *) {
+            let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+            login.target = self
+            login.state = launchAtLoginEnabled ? .on : .off
+            menu.addItem(login)
+        }
+        menu.addItem(NSMenuItem(title: "Quit Pulse", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+    }
+
     func rebuildNetMenu(rows: [Row]) {
         netMenu.removeAllItems()
         addSectionHeader(to: netMenu, title: "Transfer  ·  MB/s")
@@ -376,8 +586,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 addNetworkRow(to: netMenu, label: row.label, rx: row.rx, tx: row.tx)
             }
         }
+        if netHistory.count >= 2 {
+            netMenu.addItem(.separator())
+            addSparklineRow(to: netMenu, values: netHistory,
+                            legend: "peak " + fmtSpeedUnit(netHistory.max() ?? 0))
+        }
         netMenu.addItem(.separator())
-        netMenu.addItem(NSMenuItem(title: "Quit Pulse", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        addSectionHeader(to: netMenu, title: "Session")
+        addRow(to: netMenu, label: "Downloaded", value: fmtBytes(sessionRx))
+        addRow(to: netMenu, label: "Uploaded", value: fmtBytes(sessionTx))
+        addFooter(to: netMenu)
     }
 
     func rebuildSysMenu() {
@@ -388,6 +606,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             addRow(to: sysMenu, label: "Temperature", value: String(format: "%.0f °C", t))
         } else {
             addRow(to: sysMenu, label: "Temperature", value: "—")
+        }
+
+        if cpuHistory.count >= 2 {
+            addSparklineRow(to: sysMenu, values: cpuHistory, cap: 100, legend: "load")
+        }
+
+        sysMenu.addItem(.separator())
+        addSectionHeader(to: sysMenu, title: "🧠 Memory")
+        if let mem = readMemory() {
+            let gib = 1073741824.0
+            let used = String(format: "%.1f / %.0f GB  (%.0f %%)",
+                              Double(mem.usedBytes) / gib, Double(mem.totalBytes) / gib, mem.usedPercent)
+            addRow(to: sysMenu, label: "Used", value: used, labelWidth: 14, valueWidth: 22)
+            addRow(to: sysMenu, label: "Compressed", value: fmtBytes(mem.compressedBytes), labelWidth: 14, valueWidth: 22)
+        } else {
+            addPlaceholder(to: sysMenu, text: "Unavailable")
+        }
+
+        sysMenu.addItem(.separator())
+        addSectionHeader(to: sysMenu, title: "💽 Disk")
+        if let r = diskReadMBps, let w = diskWriteMBps {
+            addRow(to: sysMenu, label: "Read", value: fmtSpeedUnit(r), labelWidth: 14, valueWidth: 22)
+            addRow(to: sysMenu, label: "Write", value: fmtSpeedUnit(w), labelWidth: 14, valueWidth: 22)
+        } else {
+            addPlaceholder(to: sysMenu, text: "Measuring…")
         }
 
         sysMenu.addItem(.separator())
@@ -402,8 +645,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        sysMenu.addItem(.separator())
-        sysMenu.addItem(NSMenuItem(title: "Quit Pulse", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        addFooter(to: sysMenu)
     }
 }
 

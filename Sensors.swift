@@ -310,3 +310,62 @@ final class SMC {
         return fans
     }
 }
+
+// MARK: - Memory usage (public Mach API)
+
+struct MemoryInfo {
+    let usedBytes: UInt64
+    let compressedBytes: UInt64
+    let totalBytes: UInt64
+    var usedPercent: Double { totalBytes == 0 ? 0 : Double(usedBytes) / Double(totalBytes) * 100 }
+}
+
+func readMemory() -> MemoryInfo? {
+    var stats = vm_statistics64_data_t()
+    var size = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
+    let res = withUnsafeMutablePointer(to: &stats) { ptr -> kern_return_t in
+        ptr.withMemoryRebound(to: integer_t.self, capacity: Int(size)) {
+            host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &size)
+        }
+    }
+    guard res == KERN_SUCCESS else { return nil }
+
+    var totalBytes: UInt64 = 0
+    var len = MemoryLayout<UInt64>.size
+    sysctlbyname("hw.memsize", &totalBytes, &len, nil, 0)
+
+    let pageSize = UInt64(vm_kernel_page_size)
+    // "Used" the way Activity Monitor counts it: app (internal − purgeable) + wired + compressed
+    let appBytes        = (UInt64(stats.internal_page_count) &- UInt64(stats.purgeable_count)) &* pageSize
+    let wiredBytes      = UInt64(stats.wire_count) &* pageSize
+    let compressedBytes = UInt64(stats.compressor_page_count) &* pageSize
+    return MemoryInfo(
+        usedBytes: appBytes &+ wiredBytes &+ compressedBytes,
+        compressedBytes: compressedBytes,
+        totalBytes: totalBytes
+    )
+}
+
+// MARK: - Disk I/O byte counters (IOKit IOBlockStorageDriver statistics)
+// Iterating the IO registry isn't free, so callers should only sample while visible.
+
+func readDiskBytes() -> (read: UInt64, write: UInt64)? {
+    var iter: io_iterator_t = 0
+    guard IOServiceGetMatchingServices(0, IOServiceMatching("IOBlockStorageDriver"), &iter) == KERN_SUCCESS
+    else { return nil }
+    defer { IOObjectRelease(iter) }
+
+    var totalRead: UInt64 = 0
+    var totalWrite: UInt64 = 0
+    var found = false
+    while case let drive = IOIteratorNext(iter), drive != 0 {
+        defer { IOObjectRelease(drive) }
+        var propsRef: Unmanaged<CFMutableDictionary>?
+        guard IORegistryEntryCreateCFProperties(drive, &propsRef, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+              let props = propsRef?.takeRetainedValue() as? [String: Any],
+              let stats = props["Statistics"] as? [String: Any] else { continue }
+        if let r = (stats["Bytes (Read)"] as? NSNumber)?.uint64Value  { totalRead &+= r; found = true }
+        if let w = (stats["Bytes (Write)"] as? NSNumber)?.uint64Value { totalWrite &+= w; found = true }
+    }
+    return found ? (totalRead, totalWrite) : nil
+}

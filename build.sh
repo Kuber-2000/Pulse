@@ -16,6 +16,7 @@ swiftc -O main.swift Sensors.swift \
   -framework Cocoa \
   -framework IOKit \
   -framework QuartzCore \
+  -framework ServiceManagement \
   -o "$APP_DIR/Contents/MacOS/$APP_NAME"
 
 # Force LaunchServices to re-read the bundle (so LSUIElement is honored).

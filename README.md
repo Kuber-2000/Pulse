@@ -26,7 +26,11 @@ Title changes cross-fade in rather than snapping, so tier shifts feel smooth ins
 - **Fan speed** — RPM and % saturation between `F0Mn` and `F0Mx` SMC keys
 - **Dynamic status emoji** — CPU load, temperature, fan, and network icons each escalate through their own warning/hot tiers instead of staying static
 - **Smooth cross-fade transitions** — status bar text fades between updates instead of snapping
-- **Auto-launch at login** via a LaunchAgent (no Login Items dance)
+- **Memory usage** (Activity-Monitor-style used / compressed) and **disk read/write speed** in the System dropdown — sampled only while the menu is open
+- **Sparkline history** — last 60 samples of network throughput and CPU load, drawn right in the dropdowns
+- **Session data totals** — bytes downloaded/uploaded since launch, in the network dropdown
+- **Auto-scaling units** — sub-MB/s traffic shows as KB/s (`↓340K`) instead of a dead-looking `0.0`
+- **Launch at Login toggle** in the dropdown menus (`SMAppService`, macOS 13+), or via the bundled LaunchAgent
 - **Tuned for low background battery/CPU use** — sampling throttled per-sensor (see cadence table below), no more work than needed to stay live
 - **No telemetry, no ads, no signing fees, no install bloat** — single self-contained `.app`, ~150 KB binary
 - ~**500 lines of Swift**, zero dependencies
@@ -103,10 +107,13 @@ rm -rf /Applications/Pulse.app
 | Fan RPM + min/max | SMC via `IOConnectCallStructMethod` — `FNum`, `F<i>Ac`, `F<i>Mn`, `F<i>Mx` |
 
 Sampling cadence (tuned for low background CPU/battery use):
-- Network bytes & CPU ticks: every 2 s
+- Network bytes & CPU ticks: adaptive — every 2 s when quiet, every 0.5 s while transfer exceeds 5 MB/s (drops back below 3 MB/s; hysteresis prevents flapping)
 - CPU temperature: every 3 s
 - Fan RPM: every 4 s (SMC reads are slow)
 - Hardware port labels (`networksetup` subprocess): every 30 s
+- Memory & disk I/O: only sampled while the System dropdown is open — zero background cost
+- Dropdown menus: only rebuilt while open
+- All sampling pauses while the screen is asleep or locked
 
 ---
 
